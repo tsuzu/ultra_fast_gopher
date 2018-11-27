@@ -1,0 +1,6 @@
+vendor/
+*.png
+*.gif
+*.jpg
+*.jpeg
+ultra_fast_gopher
