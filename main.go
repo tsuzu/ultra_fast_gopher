@@ -1,16 +1,18 @@
 package main
 
 import (
+	"errors"
 	"image"
 	"image/color"
-	"image/color/palette"
 	"image/draw"
 	"image/gif"
 	"image/png"
+	"io"
 	"math"
 	"os"
 
 	"github.com/disintegration/imaging"
+	"github.com/soniakeys/quant/median"
 )
 
 func main() {
@@ -57,11 +59,19 @@ func main() {
 					}
 				}
 
+				value := c.R // lightness
+				if value < c.G {
+					value = c.G
+				}
+				if value < c.B {
+					value = c.B
+				}
+
 				return color.NRGBA{
 					R: 255,
 					G: 255,
 					B: 255,
-					A: 255 - c.R,
+					A: 255 - value,
 				}
 			},
 		)
@@ -86,6 +96,39 @@ func main() {
 	for i := range ufpColor {
 		dst := generator(ufpColor[i], backgroundColor)
 		images = append(images, dst)
+	}
+
+	gifGenerator := func(images []image.Image, writer io.Writer) error {
+		if len(images) == 0 {
+			return errors.New("no image")
+		}
+
+		agif := &gif.GIF{}
+		for i := range images {
+
+			quantizer := median.Quantizer(256)
+			p := make(color.Palette, 0, 256)
+			p = append(p, &color.NRGBA{0, 0, 0, 0})
+			p = quantizer.Quantize(p, images[i])
+
+			paletted := image.NewPaletted(images[i].Bounds(), p)
+
+			draw.FloydSteinberg.Draw(paletted, paletted.Bounds(), images[i], image.ZP)
+
+			agif.Image = append(agif.Image, paletted)
+			agif.Delay = append(agif.Delay, 2)
+			agif.Disposal = append(agif.Disposal, 2)
+		}
+
+		if len(agif.Image) == 0 {
+			return nil
+		}
+
+		if err := gif.EncodeAll(writer, agif); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	aroundRotatingGenerator := func(path string, images []image.Image, backgroundColor color.Color) error {
@@ -113,24 +156,17 @@ func main() {
 			}
 		}
 
-		agif := &gif.GIF{}
 		for i := range images {
-			paletted := image.NewPaletted(image.Rectangle{Max: maxSize}, palette.WebSafe)
+			resized := image.NewNRGBA(image.Rectangle{Max: maxSize})
 
-			drawRect := paletted.Bounds()
+			drawRect := resized.Bounds()
 			drawRect.Min = drawRect.Max.Sub(images[i].Bounds().Size()).Div(2)
 			drawRect.Max = drawRect.Max.Add(images[i].Bounds().Size()).Div(2)
 
-			draw.Draw(paletted, paletted.Rect, &image.Uniform{backgroundColor}, image.ZP, draw.Src)
-			draw.Draw(paletted, drawRect, images[i], image.ZP, draw.Src)
+			draw.Draw(resized, resized.Bounds(), &image.Uniform{backgroundColor}, image.ZP, draw.Src)
+			draw.Draw(resized, drawRect, images[i], image.ZP, draw.Src)
 
-			agif.Image = append(agif.Image, paletted)
-			agif.Delay = append(agif.Delay, 2)
-			agif.Disposal = append(agif.Disposal, 2)
-		}
-
-		if len(agif.Image) == 0 {
-			return nil
+			images[i] = resized
 		}
 
 		writer, err := os.Create(path)
@@ -140,7 +176,7 @@ func main() {
 		}
 		defer writer.Close()
 
-		if err := gif.EncodeAll(writer, agif); err != nil {
+		if err := gifGenerator(images, writer); err != nil {
 			return err
 		}
 
@@ -160,24 +196,17 @@ func main() {
 			}
 		}
 
-		agif := &gif.GIF{}
 		for i := range images {
-			paletted := image.NewPaletted(image.Rectangle{Max: maxSize}, palette.Plan9)
+			resized := image.NewNRGBA(image.Rectangle{Max: maxSize})
 
-			drawRect := paletted.Bounds()
+			drawRect := resized.Bounds()
 			drawRect.Min = drawRect.Max.Sub(images[i].Bounds().Size()).Div(2)
 			drawRect.Max = drawRect.Max.Add(images[i].Bounds().Size()).Div(2)
 
-			draw.Draw(paletted, paletted.Rect, &image.Uniform{backgroundColor}, image.ZP, draw.Src)
-			draw.Draw(paletted, drawRect, images[i], image.ZP, draw.Src)
+			draw.Draw(resized, resized.Bounds(), &image.Uniform{backgroundColor}, image.ZP, draw.Src)
+			draw.Draw(resized, drawRect, images[i], image.ZP, draw.Src)
 
-			agif.Image = append(agif.Image, paletted)
-			agif.Delay = append(agif.Delay, 2)
-			agif.Disposal = append(agif.Disposal, 2)
-		}
-
-		if len(agif.Image) == 0 {
-			return nil
+			images[i] = resized
 		}
 
 		writer, err := os.Create(path)
@@ -187,7 +216,7 @@ func main() {
 		}
 		defer writer.Close()
 
-		if err := gif.EncodeAll(writer, agif); err != nil {
+		if err := gifGenerator(images, writer); err != nil {
 			return err
 		}
 
